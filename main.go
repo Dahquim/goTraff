@@ -1,49 +1,15 @@
+// main.go
 package main
 
 import (
-    "fmt"
     "log"
+    "net"
     "os"
     "sync"
-    "time"
-    "net"
+    "fmt"
     "github.com/google/gopacket"
     "github.com/google/gopacket/pcap"
-    "trafanal/parser"
 )
-
-func main() {
-    selectInterface := selectInterface()
-
-    handle, err := pcap.OpenLive(selectInterface, 1600, true, pcap.BlockForever)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer handle.Close()
-   
-    packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-
-    var mu sync.Mutex
-    packetCount := make(map[string]int)
-    uniqueIPs := make(map[string]int)
-
-    go displayAnalysis(&mu, packetCount, uniqueIPs)
-
-    for packet := range packetSource.Packets() {
-        packetInfo := parser.ParsePacket(packet)
-
-        if packetInfo != nil {
-            mu.Lock()
-            // Increment protocol count
-            packetCount[packetInfo.Protocol]++
-
-            // Increment unique source and destination IP counts
-            uniqueIPs[packetInfo.SourceIP.String()]++
-            uniqueIPs[packetInfo.DestinationIP.String()]++
-            mu.Unlock()
-        }
-    }
-}
 
 func selectInterface() string {
     interfaces, err := net.Interfaces()
@@ -51,50 +17,42 @@ func selectInterface() string {
         log.Fatal(err)
     }
 
-    fmt.Println("Select an interface:")
+    fmt.Println("Available network interfaces:")
     for i, iface := range interfaces {
-        fmt.Printf(" %d: %s\n", i, iface.Name)
+        fmt.Printf("%d: %s\n", i, iface.Name)
     }
 
     fmt.Print("Select an interface to monitor (number): ")
     var choice int
     _, err = fmt.Scan(&choice)
     if err != nil || choice < 0 || choice >= len(interfaces) {
-        log.Fatal(err)
+        fmt.Println("Invalid selection. Exiting.")
         os.Exit(1)
     }
 
     return interfaces[choice].Name
 }
 
-func displayAnalysis(mu *sync.Mutex, packetCount map[string]int, uniqueIPs map[string]int) {
-    for {
-        mu.Lock()
-        fmt.Print("\033[H\033[2J") // Clear the terminal
-        fmt.Println("Traffic Analysis:")
-        fmt.Println("Packet counts by protocol:")
-        anyPackets := false
+func main() {
+    selectedInterface := selectInterface() // Get user-selected interface
 
-        for proto, count := range packetCount {
-            fmt.Printf(" - %s: %d packets\n", proto, count)
-            if count > 0 {
-                anyPackets = true
-            }
-        }
+    handle, err := pcap.OpenLive(selectedInterface, 1600, true, pcap.BlockForever)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer handle.Close()
 
-        fmt.Println("Unique IPs:")
-        for ip, count := range uniqueIPs {
-            fmt.Printf(" - %s: %d packets\n", ip, count)
-            if count > 0 {
-                anyPackets = true
-            }
-        }
+    packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
-        if !anyPackets {
-            fmt.Println("No packets captured in the last interval.")
-        }
+    // Create maps and mutex for thread-safe access
+    var mu sync.Mutex
+    packetCount := make(map[string]int) // Protocol count
+    uniqueIPs := make(map[string]int)    // Unique IP count
 
-        mu.Unlock()
-        time.Sleep(10 * time.Second) // Update every 10 seconds
+    go displayAnalysis(&mu, packetCount, uniqueIPs) // Start displaying analysis
+    go startServer(&mu, packetCount, uniqueIPs)     // Start the API server
+
+    for packet := range packetSource.Packets() {
+        processPacket(&mu, packet, packetCount, uniqueIPs) // Process each packet
     }
 }

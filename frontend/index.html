@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Analysis</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 5px; }
+        .timer { font-weight: bold; }
+    </style>
+    <script>
+        const ws = new WebSocket("ws://localhost:8080/ws/traffic-analysis");
+        const updateInterval = 10; // seconds
+        let countdown = updateInterval;
+
+        function startTimer() {
+            const timerDisplay = document.getElementById("timer");
+            countdown = updateInterval;
+
+            const timer = setInterval(() => {
+                countdown--;
+                timerDisplay.innerText = `Next update in ${countdown} second${countdown === 1 ? '' : 's'}...`;
+
+                if (countdown <= 0) {
+                    clearInterval(timer);
+                    timerDisplay.innerText = `Next update in ${updateInterval} seconds...`; // Reset timer
+                    startTimer(); // Restart timer
+                }
+            }, 1000);
+        }
+
+        ws.onopen = function() {
+            startTimer(); // Start the timer when WebSocket opens
+        };
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            document.getElementById("packetCount").innerText = JSON.stringify(data.packet_count, null, 2);
+            document.getElementById("uniqueIPs").innerText = JSON.stringify(data.unique_ips, null, 2);
+        };
+
+        ws.onerror = function(error) {
+            console.error("WebSocket Error:", error);
+        };
+    </script>
+</head>
+<body>
+    <h1>Traffic Analysis</h1>
+    <h2>Packet Count</h2>
+    <pre id="packetCount">Waiting for updates...</pre>
+    <h2>Unique IPs</h2>
+    <pre id="uniqueIPs">Waiting for updates...</pre>
+    <div class="timer" id="timer">Next update in 10 seconds...</div> <!-- Timer display -->
+</body>
+</html>
